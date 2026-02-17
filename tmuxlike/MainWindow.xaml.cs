@@ -92,7 +92,11 @@ public partial class MainWindow : Window
         CommandBindings.Add(new CommandBinding(PrevPaneCommand, (_, _) => CyclePane(-1)));
         CommandBindings.Add(new CommandBinding(NextWorktreeCommand, (_, _) => CycleWorktree(1)));
         CommandBindings.Add(new CommandBinding(PrevWorktreeCommand, (_, _) => CycleWorktree(-1)));
-        CommandBindings.Add(new CommandBinding(VoiceToggleCommand, (_, _) => _voiceService?.Toggle()));
+        CommandBindings.Add(new CommandBinding(VoiceToggleCommand, (_, _) =>
+        {
+            if (VoiceOverlay.IsOpen) return;
+            _voiceService?.Toggle();
+        }));
 
         ContentRendered += MainWindow_ContentRendered;
 
@@ -101,6 +105,9 @@ public partial class MainWindow : Window
         _voiceService.PromptReady += OnVoicePromptReady;
         _voiceService.ErrorOccurred += OnVoiceError;
         _voiceService.StartBridge();
+
+        VoiceOverlay.PromptAccepted += OnPromptAccepted;
+        VoiceOverlay.PromptDiscarded += OnPromptDiscarded;
     }
 
     private void MainWindow_ContentRendered(object? sender, EventArgs e)
@@ -666,8 +673,28 @@ public partial class MainWindow : Window
 
     private void OnVoicePromptReady(string text)
     {
-        // Phase 2: log to debug output. Phase 3 will show the overlay.
-        Debug.WriteLine($"[Voice] Prompt ready: {text}");
+        VoiceOverlay.Show(text);
+    }
+
+    private void OnPromptAccepted(string text)
+    {
+        if (_currentWorktree != null && _focusedPaneIndex < _currentWorktree.Panes.Count)
+        {
+            var session = _currentWorktree.Panes[_focusedPaneIndex].Session;
+            if (session != null)
+            {
+                try { session.WriteToTerm(text + "\r"); } catch { }
+            }
+        }
+
+        if (_currentWorktree != null && _focusedPaneIndex < _currentWorktree.Panes.Count)
+            _currentWorktree.Panes[_focusedPaneIndex].Control.Focus();
+    }
+
+    private void OnPromptDiscarded()
+    {
+        if (_currentWorktree != null && _focusedPaneIndex < _currentWorktree.Panes.Count)
+            _currentWorktree.Panes[_focusedPaneIndex].Control.Focus();
     }
 
     private void OnVoiceError(string message)

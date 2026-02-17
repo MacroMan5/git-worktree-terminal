@@ -1,0 +1,25 @@
+<UserControl x:Class="tmuxlike.Controls.PromptOverlay"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Visibility="Collapsed"
+             KeyDown="Overlay_KeyDown">
+    <Border Background="#2d2d2d" BorderBrush="#007acc" BorderThickness="0,2,0,0"
+            Padding="16,12" MaxHeight="200">
+        <DockPanel>
+            <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                <TextBlock Foreground="#888" FontSize="11"
+                           Text="Enter: Inject into terminal  |  Esc: Discard"
+                           HorizontalAlignment="Center" />
+            </DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="Refined Prompt:" Foreground="#aaa"
+                       FontSize="11" FontWeight="SemiBold" Margin="0,0,0,6" />
+            <TextBox x:Name="PromptTextBox"
+                     Background="#1e1e1e" Foreground="#e1e1e1"
+                     BorderBrush="#3c3c3c" BorderThickness="1"
+                     FontFamily="Cascadia Code,Consolas,Courier New"
+                     FontSize="13" Padding="8,6"
+                     AcceptsReturn="True" TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto" />
+        </DockPanel>
+    </Border>
+</UserControl>
