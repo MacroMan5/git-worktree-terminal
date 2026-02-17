@@ -15,6 +15,12 @@ packages/
 *.exe
 !publish.bat
 
+# Python
+__pycache__/
+
+# Publish output directory
+publish-out/
+
 # OS files
 Thumbs.db
 Desktop.ini
