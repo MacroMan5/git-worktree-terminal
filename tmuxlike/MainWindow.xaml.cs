@@ -56,6 +56,10 @@ public partial class MainWindow : Window
     public static readonly RoutedCommand OpenVSCodeCommand = new();
     public static readonly RoutedCommand SplitPaneCommand = new();
     public static readonly RoutedCommand ClosePaneCommand = new();
+    public static readonly RoutedCommand NextPaneCommand = new();
+    public static readonly RoutedCommand PrevPaneCommand = new();
+    public static readonly RoutedCommand NextWorktreeCommand = new();
+    public static readonly RoutedCommand PrevWorktreeCommand = new();
 
     private const int MaxPanes = 4;
 
@@ -82,6 +86,10 @@ public partial class MainWindow : Window
         CommandBindings.Add(new CommandBinding(OpenVSCodeCommand, (_, _) => OpenVSCode_Click(null, null!)));
         CommandBindings.Add(new CommandBinding(SplitPaneCommand, (_, _) => SplitPane_Click(null, null!)));
         CommandBindings.Add(new CommandBinding(ClosePaneCommand, (_, _) => ClosePane_Click(null, null!)));
+        CommandBindings.Add(new CommandBinding(NextPaneCommand, (_, _) => CyclePane(1)));
+        CommandBindings.Add(new CommandBinding(PrevPaneCommand, (_, _) => CyclePane(-1)));
+        CommandBindings.Add(new CommandBinding(NextWorktreeCommand, (_, _) => CycleWorktree(1)));
+        CommandBindings.Add(new CommandBinding(PrevWorktreeCommand, (_, _) => CycleWorktree(-1)));
 
         ContentRendered += MainWindow_ContentRendered;
     }
@@ -136,21 +144,32 @@ public partial class MainWindow : Window
             Text = $"{wt.DisplayName} [{paneIndex + 1}/{wt.Panes.Count + 1}]",
             Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)),
             FontSize = 10,
-            Margin = new Thickness(6, 2, 6, 0),
-            Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26))
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(8, 4, 8, 4),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var header = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x2d, 0x2d, 0x2d)),
+            Child = label,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3c, 0x3c, 0x3c)),
+            BorderThickness = new Thickness(0, 0, 0, 1)
         };
 
         var dock = new DockPanel();
-        DockPanel.SetDock(label, Dock.Top);
-        dock.Children.Add(label);
+        DockPanel.SetDock(header, Dock.Top);
+        dock.Children.Add(header);
         dock.Children.Add(terminal);
 
         var border = new Border
         {
             Child = dock,
-            BorderThickness = new Thickness(2),
-            BorderBrush = Brushes.Transparent,
-            Margin = new Thickness(1)
+            BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3c, 0x3c, 0x3c)),
+            Margin = new Thickness(1),
+            CornerRadius = new CornerRadius(2),
+            ClipToBounds = true
         };
         pane.TileBorder = border;
 
@@ -274,7 +293,7 @@ public partial class MainWindow : Window
         // Update pane labels
         for (var i = 0; i < panes.Count; i++)
         {
-            if (panes[i].TileBorder.Child is DockPanel dp && dp.Children[0] is TextBlock tb)
+            if (panes[i].TileBorder.Child is DockPanel dp && dp.Children[0] is Border header && header.Child is TextBlock tb)
                 tb.Text = $"{_currentWorktree.DisplayName} [{i + 1}/{count}]";
         }
 
@@ -292,7 +311,7 @@ public partial class MainWindow : Window
         {
             panes[i].TileBorder.BorderBrush = i == _focusedPaneIndex
                 ? new SolidColorBrush(Color.FromRgb(0x00, 0x7a, 0xcc))
-                : Brushes.Transparent;
+                : new SolidColorBrush(Color.FromRgb(0x3c, 0x3c, 0x3c));
         }
     }
 
@@ -305,6 +324,24 @@ public partial class MainWindow : Window
 
         CreatePane(_currentWorktree);
         RebuildTileLayout();
+    }
+
+    private void CyclePane(int direction)
+    {
+        if (_currentWorktree == null || _currentWorktree.Panes.Count <= 1) return;
+
+        _focusedPaneIndex = (_focusedPaneIndex + direction + _currentWorktree.Panes.Count) % _currentWorktree.Panes.Count;
+        _currentWorktree.Panes[_focusedPaneIndex].Control.Focus();
+        UpdatePaneHighlight();
+    }
+
+    private void CycleWorktree(int direction)
+    {
+        if (WorktreeList.Items.Count <= 1) return;
+
+        var nextIdx = (WorktreeList.SelectedIndex + direction + WorktreeList.Items.Count) % WorktreeList.Items.Count;
+        WorktreeList.SelectedIndex = nextIdx;
+        WorktreeList.ScrollIntoView(WorktreeList.SelectedItem);
     }
 
     private void ClosePane_Click(object? sender, RoutedEventArgs e)

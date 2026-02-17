@@ -15,64 +15,80 @@
         <KeyBinding Key="O" Modifiers="Ctrl" Command="{x:Static local:MainWindow.OpenVSCodeCommand}" />
         <KeyBinding Key="T" Modifiers="Ctrl" Command="{x:Static local:MainWindow.SplitPaneCommand}" />
         <KeyBinding Key="W" Modifiers="Ctrl" Command="{x:Static local:MainWindow.ClosePaneCommand}" />
+        <KeyBinding Key="Tab" Modifiers="Ctrl" Command="{x:Static local:MainWindow.NextPaneCommand}" />
+        <KeyBinding Key="Tab" Modifiers="Ctrl+Shift" Command="{x:Static local:MainWindow.PrevPaneCommand}" />
+        <KeyBinding Key="Down" Modifiers="Alt" Command="{x:Static local:MainWindow.NextWorktreeCommand}" />
+        <KeyBinding Key="Up" Modifiers="Alt" Command="{x:Static local:MainWindow.PrevWorktreeCommand}" />
     </Window.InputBindings>
 
     <Window.Resources>
         <local:MainBranchBrushConverter x:Key="MainBranchBrush" />
         <local:FileIconConverter x:Key="FileIconConverter" />
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
 
         <Style x:Key="ToolbarButton" TargetType="Button">
-            <Setter Property="Background" Value="#3c3c3c" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="#cccccc" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="Padding" Value="8,4" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Bd" Background="{TemplateBinding Background}"
-                                Padding="{TemplateBinding Padding}" CornerRadius="3">
+                                Padding="{TemplateBinding Padding}" CornerRadius="4">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#505050" />
+                                <Setter TargetName="Bd" Property="Background" Value="#3e3e42" />
+                                <Setter Property="Foreground" Value="White" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="#007acc" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#555" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="ToolbarSeparator" TargetType="Rectangle">
+            <Setter Property="Width" Value="1" />
+            <Setter Property="Fill" Value="#444" />
+            <Setter Property="Margin" Value="4,6" />
+        </Style>
     </Window.Resources>
 
     <DockPanel>
         <!-- Status bar -->
-        <Border DockPanel.Dock="Bottom" Background="#007acc" Padding="8,4">
-            <TextBlock Foreground="White" FontSize="11"
-                       Text="Ctrl+N: New | F5: Refresh | Del: Remove | Ctrl+E: Files | Ctrl+O: VS Code | Ctrl+T: Split | Ctrl+W: Close Pane" />
+        <Border DockPanel.Dock="Bottom" Background="#2d2d2d" Padding="12,6" BorderBrush="#3c3c3c" BorderThickness="0,1,0,0">
+            <TextBlock Foreground="#aaa" FontSize="11"
+                       Text="Ctrl+N: New | F5: Refresh | Del: Remove | Ctrl+E: Files | Ctrl+O: VS Code | Ctrl+T: Split | Ctrl+W: Close | Ctrl+Tab: Panes | Alt+↑↓: Worktrees" />
         </Border>
 
         <!-- Toolbar -->
-        <Border DockPanel.Dock="Top" Background="#2d2d2d" Padding="4">
+        <Border DockPanel.Dock="Top" Background="#2d2d2d" Padding="6,2" BorderBrush="#3c3c3c" BorderThickness="0,0,0,1">
             <DockPanel>
                 <StackPanel Orientation="Horizontal">
-                    <Button Content="+ New" Click="NewWorktree_Click" Style="{StaticResource ToolbarButton}" Margin="2" />
-                    <Button Content="⟳ Refresh" Click="Refresh_Click" Style="{StaticResource ToolbarButton}" Margin="2" />
-                    <Button Content="✕ Delete" Click="DeleteWorktree_Click" Style="{StaticResource ToolbarButton}" Margin="2" />
-                    <Rectangle Width="1" Fill="#555" Margin="6,2" />
-                    <Button Content="📁 Files" Click="ToggleFiles_Click" Style="{StaticResource ToolbarButton}" Margin="2"
-                            x:Name="FilesToggleButton" />
-                    <Button Content="Open in VS Code" Click="OpenVSCode_Click" Style="{StaticResource ToolbarButton}" Margin="2" />
-                    <Rectangle Width="1" Fill="#555" Margin="6,2" />
-                    <Button Content="⊞ Split" Click="SplitPane_Click" Style="{StaticResource ToolbarButton}" Margin="2" />
-                    <Button Content="⊟ Close Pane" Click="ClosePane_Click" Style="{StaticResource ToolbarButton}" Margin="2" />
+                    <Button Content=" New" Click="NewWorktree_Click" Style="{StaticResource ToolbarButton}" Margin="2,0" ToolTip="New Worktree (Ctrl+N)" />
+                    <Button Content=" Refresh" Click="Refresh_Click" Style="{StaticResource ToolbarButton}" Margin="2,0" ToolTip="Refresh (F5)" />
+                    <Button Content=" Delete" Click="DeleteWorktree_Click" Style="{StaticResource ToolbarButton}" Margin="2,0" ToolTip="Delete Worktree (Del)" />
+                    <Rectangle Style="{StaticResource ToolbarSeparator}" />
+                    <Button Content=" Files" Click="ToggleFiles_Click" Style="{StaticResource ToolbarButton}" Margin="2,0"
+                            x:Name="FilesToggleButton" ToolTip="Toggle File Explorer (Ctrl+E)" />
+                    <Button Content=" VS Code" Click="OpenVSCode_Click" Style="{StaticResource ToolbarButton}" Margin="2,0" ToolTip="Open in VS Code (Ctrl+O)" />
+                    <Rectangle Style="{StaticResource ToolbarSeparator}" />
+                    <Button Content=" Split" Click="SplitPane_Click" Style="{StaticResource ToolbarButton}" Margin="2,0" ToolTip="Split Pane (Ctrl+T)" />
+                    <Button Content=" Close" Click="ClosePane_Click" Style="{StaticResource ToolbarButton}" Margin="2,0" ToolTip="Close Pane (Ctrl+W)" />
                 </StackPanel>
                 <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"
-                           Foreground="#999" FontSize="12" Margin="8,0" x:Name="RepoNameText" />
+                           Foreground="#888" FontSize="11" Margin="12,0" x:Name="RepoNameText" />
             </DockPanel>
         </Border>
 
@@ -88,47 +104,63 @@
 
             <!-- Sidebar: Worktree list -->
             <Border Grid.Column="0" Background="#252526" BorderBrush="#3c3c3c" BorderThickness="0,0,1,0">
-                <ListBox x:Name="WorktreeList" Background="Transparent" BorderThickness="0"
-                         SelectionChanged="WorktreeList_SelectionChanged"
-                         Foreground="White" Padding="0">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Margin="8,6">
-                                <StackPanel Orientation="Horizontal">
-                                    <Ellipse Width="8" Height="8" Margin="0,0,6,0"
-                                             Fill="{Binding IsMain, Converter={StaticResource MainBranchBrush}}" />
-                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="13"
-                                               Foreground="#cccccc" />
-                                </StackPanel>
-                                <TextBlock Text="{Binding ShortPath}" FontSize="10" Foreground="#888"
-                                           Margin="14,2,0,0" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="Bd" Background="Transparent" Padding="0"
-                                                BorderBrush="Transparent" BorderThickness="3,0,0,0">
-                                            <ContentPresenter />
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsSelected" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="#37373d" />
-                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#007acc" />
-                                            </Trigger>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="#2a2d2e" />
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                </ListBox>
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="WORKTREES" Foreground="#888" FontSize="11"
+                               FontWeight="SemiBold" Margin="12,12,8,8" />
+                    <ListBox x:Name="WorktreeList" Background="Transparent" BorderThickness="0"
+                             SelectionChanged="WorktreeList_SelectionChanged"
+                             Foreground="White" Padding="4">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="4,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Rectangle Grid.Column="0" Width="3" Height="24" VerticalAlignment="Center"
+                                               Margin="0,0,8,0" RadiusX="1.5" RadiusY="1.5"
+                                               Fill="{Binding IsMain, Converter={StaticResource MainBranchBrush}}" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="#e1e1e1" />
+                                        <TextBlock Text="{Binding ShortPath}" FontSize="10" Foreground="#777"
+                                                   Margin="0,1,0,0" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Margin" Value="0,2" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="Bd" Background="Transparent" Padding="4,6"
+                                                    CornerRadius="4" Margin="2,1">
+                                                <ContentPresenter />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="#37373d" />
+                                                </Trigger>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="#2a2d2e" />
+                                                </Trigger>
+                                                <MultiTrigger>
+                                                    <MultiTrigger.Conditions>
+                                                        <Condition Property="IsSelected" Value="True" />
+                                                        <Condition Property="IsMouseOver" Value="True" />
+                                                    </MultiTrigger.Conditions>
+                                                    <Setter TargetName="Bd" Property="Background" Value="#3e3e42" />
+                                                </MultiTrigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
+                </DockPanel>
             </Border>
 
             <!-- GridSplitter between sidebar and files/terminal -->

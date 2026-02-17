@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Added
 
 - Worktree sidebar listing all git worktrees with branch names and paths
+- Navigation shortcuts: `Ctrl+Tab` to cycle terminal panes, `Alt+↑↓` to cycle worktrees
 - Embedded ConPTY terminal with PowerShell, pwsh, and cmd support
 - Split terminal panes — up to 4 per worktree in a tiled grid layout
 - File explorer panel with lazy-loaded directory tree
@@ -17,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Worktree deletion with confirmation
 - Terminal session preservation when switching between worktrees
 - Keyboard shortcuts for all major actions
-- Dark theme inspired by VS Code
+- Refined UI: Modern sidebar 'conversation' style, Segoe MDL2 toolbar icons, and subtle dark theme improvements
 - Self-contained single-file executable publishing
 - GitHub Actions CI/CD pipeline for automated releases
 
