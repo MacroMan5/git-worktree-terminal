@@ -137,3 +137,129 @@ class Refiner:
         except Exception as e:
             log.error("Refinement failed: %s", e)
             raise
+
+
+class VoiceBridge:
+    """WebSocket server orchestrating record → transcribe → refine pipeline."""
+
+    def __init__(self):
+        self._recorder = AudioRecorder()
+        self._transcriber = Transcriber()
+        self._refiner = Refiner()
+        self._recording = False
+        self._cancel = False
+        self._timeout_task: asyncio.Task | None = None
+
+    async def handler(self, websocket):
+        """Handle a single WebSocket client connection."""
+        log.info("Client connected: %s", websocket.remote_address)
+        try:
+            async for raw in websocket:
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    log.warning("Invalid JSON: %s", raw)
+                    continue
+
+                action = msg.get("action")
+                log.info("Received: %s", action)
+
+                if action == "PTT_DOWN":
+                    await self._handle_ptt_down(websocket)
+                elif action == "PTT_UP":
+                    await self._handle_ptt_up(websocket)
+                elif action == "CANCEL":
+                    await self._handle_cancel(websocket)
+                else:
+                    log.warning("Unknown action: %s", action)
+        except websockets.ConnectionClosed:
+            log.info("Client disconnected")
+        finally:
+            if self._recording:
+                self._recorder.stop()
+                self._recording = False
+
+    async def _handle_ptt_down(self, websocket):
+        """Start recording audio."""
+        self._cancel = False
+        try:
+            self._recorder.start()
+            self._recording = True
+            await self._send(websocket, {"event": "LISTENING"})
+            self._timeout_task = asyncio.create_task(
+                self._recording_timeout(websocket)
+            )
+        except Exception as e:
+            await self._send(websocket, {"event": "ERROR", "message": f"Mic error: {e}"})
+
+    async def _handle_ptt_up(self, websocket):
+        """Stop recording, transcribe, refine, and send result."""
+        if not self._recording:
+            return
+        self._recording = False
+        if self._timeout_task is not None:
+            self._timeout_task.cancel()
+            self._timeout_task = None
+        audio = self._recorder.stop()
+
+        if self._cancel:
+            return
+
+        await self._send(websocket, {"event": "PROCESSING"})
+
+        try:
+            loop = asyncio.get_running_loop()
+            transcript = await loop.run_in_executor(None, self._transcriber.transcribe, audio)
+
+            if self._cancel:
+                return
+            if not transcript:
+                await self._send(websocket, {"event": "ERROR", "message": "No speech detected"})
+                return
+
+            refined = await loop.run_in_executor(None, self._refiner.refine, transcript)
+
+            if self._cancel:
+                return
+
+            await self._send(websocket, {"event": "FINAL_PROMPT", "text": refined})
+        except requests.Timeout:
+            await self._send(websocket, {"event": "ERROR", "message": "LLM refinement timed out"})
+        except requests.ConnectionError:
+            await self._send(websocket, {"event": "ERROR", "message": "Ollama not running — start with: ollama serve"})
+        except Exception as e:
+            await self._send(websocket, {"event": "ERROR", "message": str(e)})
+
+    async def _handle_cancel(self, websocket):
+        """Cancel any in-progress recording or processing."""
+        self._cancel = True
+        if self._timeout_task is not None:
+            self._timeout_task.cancel()
+            self._timeout_task = None
+        if self._recording:
+            self._recorder.stop()
+            self._recording = False
+        log.info("Operation cancelled")
+
+    async def _recording_timeout(self, websocket):
+        """Auto-stop recording after MAX_RECORD_SECONDS."""
+        await asyncio.sleep(MAX_RECORD_SECONDS)
+        if self._recording:
+            log.warning("Recording timeout (%ds) — auto-stopping", MAX_RECORD_SECONDS)
+            await self._handle_ptt_up(websocket)
+
+    async def _send(self, websocket, data: dict):
+        """Send a JSON event to the client."""
+        await websocket.send(json.dumps(data))
+        log.info("Sent: %s", data.get("event"))
+
+
+async def main():
+    bridge = VoiceBridge()
+    log.info("Starting Voice Bridge on ws://%s:%d", HOST, PORT)
+    async with websockets.serve(bridge.handler, HOST, PORT):
+        await asyncio.Future()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
