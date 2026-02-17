@@ -1,0 +1,177 @@
+<Window x:Class="tmuxlike.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:tmuxlike"
+        Title="Git Worktree Manager" Height="700" Width="1200"
+        WindowState="Maximized"
+        Background="#1e1e1e"
+        Closing="Window_Closing">
+
+    <Window.InputBindings>
+        <KeyBinding Key="N" Modifiers="Ctrl" Command="{x:Static local:MainWindow.NewWorktreeCommand}" />
+        <KeyBinding Key="F5" Command="{x:Static local:MainWindow.RefreshCommand}" />
+        <KeyBinding Key="Delete" Command="{x:Static local:MainWindow.DeleteWorktreeCommand}" />
+        <KeyBinding Key="E" Modifiers="Ctrl" Command="{x:Static local:MainWindow.ToggleFilesCommand}" />
+        <KeyBinding Key="O" Modifiers="Ctrl" Command="{x:Static local:MainWindow.OpenVSCodeCommand}" />
+        <KeyBinding Key="T" Modifiers="Ctrl" Command="{x:Static local:MainWindow.SplitPaneCommand}" />
+        <KeyBinding Key="W" Modifiers="Ctrl" Command="{x:Static local:MainWindow.ClosePaneCommand}" />
+    </Window.InputBindings>
+
+    <Window.Resources>
+        <local:MainBranchBrushConverter x:Key="MainBranchBrush" />
+        <local:FileIconConverter x:Key="FileIconConverter" />
+
+        <Style x:Key="ToolbarButton" TargetType="Button">
+            <Setter Property="Background" Value="#3c3c3c" />
+            <Setter Property="Foreground" Value="#cccccc" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}" CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#505050" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#007acc" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- Status bar -->
+        <Border DockPanel.Dock="Bottom" Background="#007acc" Padding="8,4">
+            <TextBlock Foreground="White" FontSize="11"
+                       Text="Ctrl+N: New | F5: Refresh | Del: Remove | Ctrl+E: Files | Ctrl+O: VS Code | Ctrl+T: Split | Ctrl+W: Close Pane" />
+        </Border>
+
+        <!-- Toolbar -->
+        <Border DockPanel.Dock="Top" Background="#2d2d2d" Padding="4">
+            <DockPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="+ New" Click="NewWorktree_Click" Style="{StaticResource ToolbarButton}" Margin="2" />
+                    <Button Content="⟳ Refresh" Click="Refresh_Click" Style="{StaticResource ToolbarButton}" Margin="2" />
+                    <Button Content="✕ Delete" Click="DeleteWorktree_Click" Style="{StaticResource ToolbarButton}" Margin="2" />
+                    <Rectangle Width="1" Fill="#555" Margin="6,2" />
+                    <Button Content="📁 Files" Click="ToggleFiles_Click" Style="{StaticResource ToolbarButton}" Margin="2"
+                            x:Name="FilesToggleButton" />
+                    <Button Content="Open in VS Code" Click="OpenVSCode_Click" Style="{StaticResource ToolbarButton}" Margin="2" />
+                    <Rectangle Width="1" Fill="#555" Margin="6,2" />
+                    <Button Content="⊞ Split" Click="SplitPane_Click" Style="{StaticResource ToolbarButton}" Margin="2" />
+                    <Button Content="⊟ Close Pane" Click="ClosePane_Click" Style="{StaticResource ToolbarButton}" Margin="2" />
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           Foreground="#999" FontSize="12" Margin="8,0" x:Name="RepoNameText" />
+            </DockPanel>
+        </Border>
+
+        <!-- Main content: 3-column grid -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="250" MinWidth="150" MaxWidth="400" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="0" x:Name="FilesColumn" MinWidth="0" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" MinWidth="200" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Sidebar: Worktree list -->
+            <Border Grid.Column="0" Background="#252526" BorderBrush="#3c3c3c" BorderThickness="0,0,1,0">
+                <ListBox x:Name="WorktreeList" Background="Transparent" BorderThickness="0"
+                         SelectionChanged="WorktreeList_SelectionChanged"
+                         Foreground="White" Padding="0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="8,6">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="8" Height="8" Margin="0,0,6,0"
+                                             Fill="{Binding IsMain, Converter={StaticResource MainBranchBrush}}" />
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="13"
+                                               Foreground="#cccccc" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding ShortPath}" FontSize="10" Foreground="#888"
+                                           Margin="14,2,0,0" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border x:Name="Bd" Background="Transparent" Padding="0"
+                                                BorderBrush="Transparent" BorderThickness="3,0,0,0">
+                                            <ContentPresenter />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="#37373d" />
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#007acc" />
+                                            </Trigger>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="#2a2d2e" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                </ListBox>
+            </Border>
+
+            <!-- GridSplitter between sidebar and files/terminal -->
+            <GridSplitter Grid.Column="1" Width="3" Background="#3c3c3c"
+                          HorizontalAlignment="Center" VerticalAlignment="Stretch" />
+
+            <!-- File explorer panel (toggleable) -->
+            <Border Grid.Column="2" Background="#252526" BorderBrush="#3c3c3c" BorderThickness="0,0,1,0"
+                    x:Name="FileExplorerPanel" Visibility="Collapsed">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="EXPLORER" Foreground="#888" FontSize="11"
+                               FontWeight="SemiBold" Margin="12,8,8,4" />
+                    <TreeView x:Name="FileTreeView" Background="Transparent" BorderThickness="0"
+                              Foreground="#cccccc" Padding="4"
+                              TreeViewItem.Expanded="FileTreeView_Expanded"
+                              MouseDoubleClick="FileTreeView_MouseDoubleClick"
+                              KeyDown="FileTreeView_KeyDown">
+                        <TreeView.ItemTemplate>
+                            <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                <StackPanel Orientation="Horizontal" Margin="2">
+                                    <TextBlock Text="{Binding IsDirectory, Converter={StaticResource FileIconConverter}}"
+                                               FontSize="12" Margin="0,0,4,0" />
+                                    <TextBlock Text="{Binding Name}" FontSize="12" />
+                                </StackPanel>
+                            </HierarchicalDataTemplate>
+                        </TreeView.ItemTemplate>
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem">
+                                <Setter Property="Foreground" Value="#cccccc" />
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+                    </TreeView>
+                </DockPanel>
+            </Border>
+
+            <!-- GridSplitter between files and terminal -->
+            <GridSplitter Grid.Column="3" Width="3" Background="#3c3c3c"
+                          HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                          x:Name="FilesSplitter" Visibility="Collapsed" />
+
+            <!-- Terminal Tile Grid -->
+            <Grid Grid.Column="4" x:Name="TerminalTileGrid" Background="#1e1e1e" />
+        </Grid>
+    </DockPanel>
+</Window>

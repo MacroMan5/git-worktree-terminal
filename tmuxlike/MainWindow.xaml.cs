@@ -1,0 +1,610 @@
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
+using EasyWindowsTerminalControl;
+using tmuxlike.Dialogs;
+using tmuxlike.Models;
+using tmuxlike.Services;
+
+namespace tmuxlike;
+
+/// <summary>
+/// Converts a boolean IsMain value to a colored brush for the worktree sidebar indicator.
+/// Green for the main worktree, blue for others.
+/// </summary>
+public class MainBranchBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        return (bool)value
+            ? new SolidColorBrush(Color.FromRgb(0x4e, 0xc9, 0xb0)) // green
+            : new SolidColorBrush(Color.FromRgb(0x56, 0x9c, 0xd6)); // blue
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
+/// <summary>
+/// Converts a boolean IsDirectory value to a folder or file emoji icon.
+/// </summary>
+public class FileIconConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => (bool)value ? "📁" : "📄";
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
+/// <summary>
+/// Main application window. Manages the worktree sidebar, terminal pane tiling,
+/// file explorer, and VS Code integration.
+/// </summary>
+public partial class MainWindow : Window
+{
+    public static readonly RoutedCommand NewWorktreeCommand = new();
+    public static readonly RoutedCommand RefreshCommand = new();
+    public static readonly RoutedCommand DeleteWorktreeCommand = new();
+    public static readonly RoutedCommand ToggleFilesCommand = new();
+    public static readonly RoutedCommand OpenVSCodeCommand = new();
+    public static readonly RoutedCommand SplitPaneCommand = new();
+    public static readonly RoutedCommand ClosePaneCommand = new();
+
+    private const int MaxPanes = 4;
+
+    private readonly string _repoRoot;
+    private readonly string _shellPath;
+    private WorktreeInfo? _currentWorktree;
+    private bool _filesVisible;
+    private int _focusedPaneIndex;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+
+        _repoRoot = App.RepoRoot;
+        _shellPath = FindShell();
+
+        Title = $"Git Worktree Manager - {App.RepoName}";
+        RepoNameText.Text = App.RepoName;
+
+        CommandBindings.Add(new CommandBinding(NewWorktreeCommand, (_, _) => NewWorktree_Click(null, null!)));
+        CommandBindings.Add(new CommandBinding(RefreshCommand, (_, _) => Refresh_Click(null, null!)));
+        CommandBindings.Add(new CommandBinding(DeleteWorktreeCommand, (_, _) => DeleteWorktree_Click(null, null!)));
+        CommandBindings.Add(new CommandBinding(ToggleFilesCommand, (_, _) => ToggleFiles_Click(null, null!)));
+        CommandBindings.Add(new CommandBinding(OpenVSCodeCommand, (_, _) => OpenVSCode_Click(null, null!)));
+        CommandBindings.Add(new CommandBinding(SplitPaneCommand, (_, _) => SplitPane_Click(null, null!)));
+        CommandBindings.Add(new CommandBinding(ClosePaneCommand, (_, _) => ClosePane_Click(null, null!)));
+
+        ContentRendered += MainWindow_ContentRendered;
+    }
+
+    private void MainWindow_ContentRendered(object? sender, EventArgs e)
+    {
+        LoadWorktrees();
+
+        if (WorktreeList.Items.Count > 0)
+            WorktreeList.SelectedIndex = 0;
+    }
+
+    private static string FindShell()
+    {
+        var pwsh = FindInPath("pwsh.exe");
+        if (pwsh != null) return pwsh;
+
+        var ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
+            "WindowsPowerShell", "v1.0", "powershell.exe");
+        if (File.Exists(ps)) return ps;
+
+        return "cmd.exe";
+    }
+
+    private static string? FindInPath(string exe)
+    {
+        var pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (var dir in pathVar.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var full = Path.Combine(dir, exe);
+            if (File.Exists(full)) return full;
+        }
+        return null;
+    }
+
+    // ── Pane creation & layout ──────────────────────────────────────
+
+    private TerminalPane CreatePane(WorktreeInfo wt)
+    {
+        var pane = new TerminalPane();
+        var paneIndex = wt.Panes.Count; // index this pane will occupy
+
+        var terminal = new EasyTerminalControl
+        {
+            FontSizeWhenSettingTheme = 13,
+            StartupCommandLine = $"\"{_shellPath}\""
+        };
+        pane.Control = terminal;
+
+        var label = new TextBlock
+        {
+            Text = $"{wt.DisplayName} [{paneIndex + 1}/{wt.Panes.Count + 1}]",
+            Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)),
+            FontSize = 10,
+            Margin = new Thickness(6, 2, 6, 0),
+            Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26))
+        };
+
+        var dock = new DockPanel();
+        DockPanel.SetDock(label, Dock.Top);
+        dock.Children.Add(label);
+        dock.Children.Add(terminal);
+
+        var border = new Border
+        {
+            Child = dock,
+            BorderThickness = new Thickness(2),
+            BorderBrush = Brushes.Transparent,
+            Margin = new Thickness(1)
+        };
+        pane.TileBorder = border;
+
+        // Track focus
+        terminal.GotFocus += (_, _) =>
+        {
+            if (_currentWorktree == null) return;
+            var idx = _currentWorktree.Panes.IndexOf(pane);
+            if (idx >= 0)
+            {
+                _focusedPaneIndex = idx;
+                UpdatePaneHighlight();
+            }
+        };
+
+        // Capture session & CD after terminal loads
+        terminal.Loaded += (_, _) =>
+        {
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                pane.Session = terminal.ConPTYTerm;
+                if (pane.Session != null)
+                {
+                    var escapedPath = wt.Path.Replace("'", "''");
+                    var cdCommand = _shellPath.Contains("cmd.exe", StringComparison.OrdinalIgnoreCase)
+                        ? $"cd /d \"{wt.Path}\"\r"
+                        : $"Set-Location '{escapedPath}'\r";
+                    try { pane.Session.WriteToTerm(cdCommand); } catch { }
+                }
+            };
+            timer.Start();
+        };
+
+        wt.Panes.Add(pane);
+        return pane;
+    }
+
+    private void RebuildTileLayout()
+    {
+        if (_currentWorktree == null) return;
+
+        var panes = _currentWorktree.Panes;
+        var count = panes.Count;
+        if (count == 0) return;
+
+        TerminalTileGrid.Children.Clear();
+        TerminalTileGrid.RowDefinitions.Clear();
+        TerminalTileGrid.ColumnDefinitions.Clear();
+
+        switch (count)
+        {
+            case 1:
+                TerminalTileGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                TerminalTileGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                Grid.SetRow(panes[0].TileBorder, 0);
+                Grid.SetColumn(panes[0].TileBorder, 0);
+                TerminalTileGrid.Children.Add(panes[0].TileBorder);
+                break;
+
+            case 2:
+                TerminalTileGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                TerminalTileGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                TerminalTileGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                Grid.SetRow(panes[0].TileBorder, 0);
+                Grid.SetColumn(panes[0].TileBorder, 0);
+                Grid.SetColumnSpan(panes[0].TileBorder, 1);
+                TerminalTileGrid.Children.Add(panes[0].TileBorder);
+                Grid.SetRow(panes[1].TileBorder, 0);
+                Grid.SetColumn(panes[1].TileBorder, 1);
+                Grid.SetColumnSpan(panes[1].TileBorder, 1);
+                TerminalTileGrid.Children.Add(panes[1].TileBorder);
+                break;
+
+            case 3:
+                TerminalTileGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                TerminalTileGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                TerminalTileGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                TerminalTileGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                // Top row: 2 panes side by side
+                Grid.SetRow(panes[0].TileBorder, 0);
+                Grid.SetColumn(panes[0].TileBorder, 0);
+                Grid.SetColumnSpan(panes[0].TileBorder, 1);
+                TerminalTileGrid.Children.Add(panes[0].TileBorder);
+                Grid.SetRow(panes[1].TileBorder, 0);
+                Grid.SetColumn(panes[1].TileBorder, 1);
+                Grid.SetColumnSpan(panes[1].TileBorder, 1);
+                TerminalTileGrid.Children.Add(panes[1].TileBorder);
+                // Bottom row: 1 pane spanning full width
+                Grid.SetRow(panes[2].TileBorder, 1);
+                Grid.SetColumn(panes[2].TileBorder, 0);
+                Grid.SetColumnSpan(panes[2].TileBorder, 2);
+                TerminalTileGrid.Children.Add(panes[2].TileBorder);
+                break;
+
+            case 4:
+                TerminalTileGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                TerminalTileGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                TerminalTileGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                TerminalTileGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                Grid.SetRow(panes[0].TileBorder, 0);
+                Grid.SetColumn(panes[0].TileBorder, 0);
+                Grid.SetColumnSpan(panes[0].TileBorder, 1);
+                TerminalTileGrid.Children.Add(panes[0].TileBorder);
+                Grid.SetRow(panes[1].TileBorder, 0);
+                Grid.SetColumn(panes[1].TileBorder, 1);
+                Grid.SetColumnSpan(panes[1].TileBorder, 1);
+                TerminalTileGrid.Children.Add(panes[1].TileBorder);
+                Grid.SetRow(panes[2].TileBorder, 1);
+                Grid.SetColumn(panes[2].TileBorder, 0);
+                Grid.SetColumnSpan(panes[2].TileBorder, 1);
+                TerminalTileGrid.Children.Add(panes[2].TileBorder);
+                Grid.SetRow(panes[3].TileBorder, 1);
+                Grid.SetColumn(panes[3].TileBorder, 1);
+                Grid.SetColumnSpan(panes[3].TileBorder, 1);
+                TerminalTileGrid.Children.Add(panes[3].TileBorder);
+                break;
+        }
+
+        // Update pane labels
+        for (var i = 0; i < panes.Count; i++)
+        {
+            if (panes[i].TileBorder.Child is DockPanel dp && dp.Children[0] is TextBlock tb)
+                tb.Text = $"{_currentWorktree.DisplayName} [{i + 1}/{count}]";
+        }
+
+        if (_focusedPaneIndex >= count)
+            _focusedPaneIndex = count - 1;
+
+        UpdatePaneHighlight();
+    }
+
+    private void UpdatePaneHighlight()
+    {
+        if (_currentWorktree == null) return;
+        var panes = _currentWorktree.Panes;
+        for (var i = 0; i < panes.Count; i++)
+        {
+            panes[i].TileBorder.BorderBrush = i == _focusedPaneIndex
+                ? new SolidColorBrush(Color.FromRgb(0x00, 0x7a, 0xcc))
+                : Brushes.Transparent;
+        }
+    }
+
+    // ── Split / Close pane ──────────────────────────────────────────
+
+    private void SplitPane_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_currentWorktree == null) return;
+        if (_currentWorktree.Panes.Count >= MaxPanes) return;
+
+        CreatePane(_currentWorktree);
+        RebuildTileLayout();
+    }
+
+    private void ClosePane_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_currentWorktree == null) return;
+        if (_currentWorktree.Panes.Count <= 1) return;
+
+        var pane = _currentWorktree.Panes[_focusedPaneIndex];
+
+        // Disconnect & dispose the session
+        try { pane.Control.DisconnectConPTYTerm(); } catch { }
+        if (pane.Session != null)
+        {
+            try { pane.Session.CloseStdinToApp(); } catch { }
+        }
+
+        _currentWorktree.Panes.RemoveAt(_focusedPaneIndex);
+        RebuildTileLayout();
+    }
+
+    // ── Worktree management ─────────────────────────────────────────
+
+    private void LoadWorktrees()
+    {
+        var previousSelection = _currentWorktree?.Path;
+        var existingWorktrees = new Dictionary<string, WorktreeInfo>();
+
+        // Preserve existing WorktreeInfo objects (with their Panes lists)
+        if (WorktreeList.ItemsSource is List<WorktreeInfo> oldList)
+        {
+            foreach (var wt in oldList)
+                existingWorktrees[wt.Path] = wt;
+        }
+
+        var freshWorktrees = GitService.GetWorktrees(_repoRoot);
+        var result = new List<WorktreeInfo>();
+
+        foreach (var fresh in freshWorktrees)
+        {
+            if (existingWorktrees.TryGetValue(fresh.Path, out var existing))
+            {
+                // Update metadata but keep panes
+                existing.Branch = fresh.Branch;
+                existing.HeadCommit = fresh.HeadCommit;
+                existing.IsMain = fresh.IsMain;
+                result.Add(existing);
+                existingWorktrees.Remove(fresh.Path);
+            }
+            else
+            {
+                result.Add(fresh);
+            }
+        }
+
+        // Dispose panes for removed worktrees
+        foreach (var removed in existingWorktrees.Values)
+            DisposeWorktreePanes(removed);
+
+        WorktreeList.ItemsSource = result;
+
+        // Restore selection
+        if (previousSelection != null)
+        {
+            var match = result.FindIndex(w => w.Path == previousSelection);
+            if (match >= 0) WorktreeList.SelectedIndex = match;
+        }
+    }
+
+    private void DisposeWorktreePanes(WorktreeInfo wt)
+    {
+        foreach (var pane in wt.Panes)
+        {
+            try { pane.Control.DisconnectConPTYTerm(); } catch { }
+            if (pane.Session != null)
+            {
+                try { pane.Session.CloseStdinToApp(); } catch { }
+            }
+        }
+        wt.Panes.Clear();
+    }
+
+    private void WorktreeList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (WorktreeList.SelectedItem is not WorktreeInfo target) return;
+        if (target == _currentWorktree) return;
+
+        // Detach current worktree's pane borders from the grid
+        if (_currentWorktree != null)
+        {
+            foreach (var pane in _currentWorktree.Panes)
+            {
+                try { pane.Control.DisconnectConPTYTerm(); } catch { }
+            }
+            TerminalTileGrid.Children.Clear();
+        }
+
+        _currentWorktree = target;
+        _focusedPaneIndex = 0;
+
+        // If target has no panes yet, create the first one
+        if (target.Panes.Count == 0)
+            CreatePane(target);
+        else
+        {
+            // Reattach existing sessions
+            foreach (var pane in target.Panes)
+            {
+                if (pane.Session != null)
+                {
+                    pane.Control.ConPTYTerm = pane.Session;
+                    SendToTermDelayed(pane.Session, "\r", 100);
+                }
+            }
+        }
+
+        RebuildTileLayout();
+
+        // Refresh file explorer if visible
+        if (_filesVisible)
+            LoadFileTree(target.Path);
+    }
+
+    private void SendToTermDelayed(TermPTY session, string text, int delayMs)
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(delayMs) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            try { session.WriteToTerm(text); } catch { }
+        };
+        timer.Start();
+    }
+
+    private void NewWorktree_Click(object? sender, RoutedEventArgs e)
+    {
+        var dialog = new NewWorktreeDialog(_repoRoot) { Owner = this };
+        if (dialog.ShowDialog() == true)
+        {
+            var (success, message) = GitService.AddWorktree(_repoRoot, dialog.BranchName, dialog.WorktreePath);
+            if (success)
+            {
+                LoadWorktrees();
+                if (WorktreeList.ItemsSource is List<WorktreeInfo> list)
+                {
+                    var idx = list.FindIndex(w => w.Path == dialog.WorktreePath);
+                    if (idx >= 0) WorktreeList.SelectedIndex = idx;
+                }
+            }
+            else
+            {
+                MessageBox.Show($"Failed to create worktree:\n{message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+
+    private void Refresh_Click(object? sender, RoutedEventArgs e) => LoadWorktrees();
+
+    private void DeleteWorktree_Click(object? sender, RoutedEventArgs e)
+    {
+        if (WorktreeList.SelectedItem is not WorktreeInfo target) return;
+
+        if (target.IsMain)
+        {
+            MessageBox.Show("Cannot remove the main worktree.", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"Remove worktree '{target.Branch}'?\nPath: {target.Path}\n\nThis will delete the directory.",
+            "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        // Detach from grid if this is the current worktree
+        if (target == _currentWorktree)
+        {
+            TerminalTileGrid.Children.Clear();
+            _currentWorktree = null;
+        }
+
+        // Dispose all panes
+        DisposeWorktreePanes(target);
+
+        var (success, message) = GitService.RemoveWorktree(_repoRoot, target.Path);
+        if (!success)
+        {
+            MessageBox.Show($"Failed to remove worktree:\n{message}", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+
+        LoadWorktrees();
+        if (WorktreeList.Items.Count > 0 && WorktreeList.SelectedIndex < 0)
+            WorktreeList.SelectedIndex = 0;
+    }
+
+    // ── File explorer ───────────────────────────────────────────────
+
+    private void ToggleFiles_Click(object? sender, RoutedEventArgs e)
+    {
+        _filesVisible = !_filesVisible;
+
+        if (_filesVisible)
+        {
+            FilesColumn.Width = new GridLength(250);
+            FileExplorerPanel.Visibility = Visibility.Visible;
+            FilesSplitter.Visibility = Visibility.Visible;
+
+            if (_currentWorktree != null)
+                LoadFileTree(_currentWorktree.Path);
+
+            FileTreeView.Focus();
+        }
+        else
+        {
+            FilesColumn.Width = new GridLength(0);
+            FileExplorerPanel.Visibility = Visibility.Collapsed;
+            FilesSplitter.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void LoadFileTree(string rootPath)
+    {
+        var items = FileExplorerService.GetDirectoryItems(rootPath);
+        FileTreeView.ItemsSource = items;
+    }
+
+    private void FileTreeView_Expanded(object sender, RoutedEventArgs e)
+    {
+        if (e.OriginalSource is TreeViewItem tvi && tvi.DataContext is FileItem item)
+        {
+            if (item.IsDirectory && item.HasDummyChild)
+            {
+                item.Children = FileExplorerService.GetDirectoryItems(item.FullPath);
+                tvi.ItemsSource = item.Children;
+            }
+        }
+    }
+
+    private void FileTreeView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (FileTreeView.SelectedItem is FileItem item && !item.IsDirectory)
+            OpenFileInVSCode(item.FullPath);
+    }
+
+    private void FileTreeView_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && FileTreeView.SelectedItem is FileItem item && !item.IsDirectory)
+        {
+            OpenFileInVSCode(item.FullPath);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            // Return focus to the focused terminal pane
+            if (_currentWorktree != null && _focusedPaneIndex < _currentWorktree.Panes.Count)
+                _currentWorktree.Panes[_focusedPaneIndex].Control.Focus();
+            e.Handled = true;
+        }
+    }
+
+    // ── VS Code ─────────────────────────────────────────────────────
+
+    private void OpenVSCode_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_currentWorktree == null) return;
+        OpenInVSCode(_currentWorktree.Path);
+    }
+
+    private static void OpenInVSCode(string path) => LaunchCode($"\"{path}\"");
+
+    private static void OpenFileInVSCode(string filePath) => LaunchCode($"\"{filePath}\"");
+
+    private static void LaunchCode(string arguments)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c code {arguments}",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+        }
+        catch
+        {
+            MessageBox.Show("Could not open VS Code. Is 'code' in your PATH?", "Error");
+        }
+    }
+
+    // ── Shutdown ────────────────────────────────────────────────────
+
+    private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (WorktreeList.ItemsSource is List<WorktreeInfo> list)
+        {
+            foreach (var wt in list)
+                DisposeWorktreePanes(wt);
+        }
+    }
+}

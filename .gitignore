@@ -1,0 +1,25 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.csproj.user
+
+# NuGet
+packages/
+
+# Publish output
+*.exe
+!publish.bat
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Rider / JetBrains
+.idea/
+*.sln.iml

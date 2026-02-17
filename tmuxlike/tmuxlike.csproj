@@ -1,0 +1,34 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <Product>Git Worktree Terminal</Product>
+    <Description>A tmux-inspired terminal manager for git worktrees on Windows</Description>
+    <Authors>MacroMan</Authors>
+    <Copyright>Copyright (C) 2026 MacroMan</Copyright>
+    <RepositoryUrl>https://github.com/MacroMan/git-worktree-terminal</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="EasyWindowsTerminalControl" Version="1.0.36" />
+  </ItemGroup>
+
+  <!-- Fix NETSDK1206: conpty.dll ships under win10-x64 RID which .NET 8+ doesn't resolve.
+       Include as Content so it deploys to output AND gets bundled into single-file publish. -->
+  <ItemGroup>
+    <Content Include="$(NuGetPackageRoot)ci.microsoft.windows.console.conpty\1.22.250314001\runtimes\win10-x64\native\conpty.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>conpty.dll</Link>
+    </Content>
+  </ItemGroup>
+
+</Project>
