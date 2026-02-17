@@ -107,6 +107,98 @@ public class VoiceService : IDisposable
         SetState(VoiceState.Disconnected);
     }
 
+    private async Task ConnectLoop(CancellationToken ct)
+    {
+        // Give the Python process time to start its WebSocket server
+        await Task.Delay(2000, ct);
+
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                _ws?.Dispose();
+                _ws = new ClientWebSocket();
+
+                using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                connectCts.CancelAfter(ConnectTimeoutMs);
+
+                await _ws.ConnectAsync(new Uri($"ws://{Host}:{Port}"), connectCts.Token);
+                SetState(VoiceState.Idle);
+                await ReceiveLoop(ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch
+            {
+                SetState(VoiceState.Disconnected);
+            }
+
+            if (!ct.IsCancellationRequested)
+                await Task.Delay(ReconnectDelayMs, ct).ConfigureAwait(false);
+        }
+    }
+
+    private async Task ReceiveLoop(CancellationToken ct)
+    {
+        var buffer = new byte[4096];
+        while (_ws is { State: WebSocketState.Open } && !ct.IsCancellationRequested)
+        {
+            WebSocketReceiveResult result;
+            try
+            {
+                result = await _ws.ReceiveAsync(buffer, ct);
+            }
+            catch
+            {
+                break;
+            }
+
+            if (result.MessageType == WebSocketMessageType.Close)
+                break;
+
+            var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
+            HandleEvent(json);
+        }
+
+        SetState(VoiceState.Disconnected);
+    }
+
+    private void HandleEvent(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var evt = root.GetProperty("event").GetString();
+
+            switch (evt)
+            {
+                case "LISTENING":
+                    SetState(VoiceState.Recording);
+                    break;
+                case "PROCESSING":
+                    SetState(VoiceState.Processing);
+                    break;
+                case "FINAL_PROMPT":
+                    var text = root.GetProperty("text").GetString() ?? "";
+                    SetState(VoiceState.Idle);
+                    _dispatcher.Invoke(() => PromptReady?.Invoke(text));
+                    break;
+                case "ERROR":
+                    var msg = root.GetProperty("message").GetString() ?? "Unknown error";
+                    SetState(VoiceState.Idle);
+                    _dispatcher.Invoke(() => ErrorOccurred?.Invoke(msg));
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[VoiceService] Bad event: {ex.Message}");
+        }
+    }
+
     private void SetState(VoiceState state)
     {
         if (_state == state) return;
