@@ -14,7 +14,7 @@ Contributions are welcome! Here's how to get started.
 ### Building
 
 ```bash
-git clone https://github.com/MacroMan/git-worktree-terminal.git
+git clone https://github.com/MacroMan5/git-worktree-terminal.git
 cd git-worktree-terminal
 dotnet build tmuxlike/tmuxlike.csproj
 ```
@@ -53,7 +53,7 @@ dotnet run --project tmuxlike/tmuxlike.csproj
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/MacroMan/git-worktree-terminal/issues)
+- Use [GitHub Issues](https://github.com/MacroMan5/git-worktree-terminal/issues)
 - Include your Windows version and .NET SDK version
 - Describe what you expected vs. what happened
 - Include steps to reproduce if possible

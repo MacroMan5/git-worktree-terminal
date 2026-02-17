@@ -21,4 +21,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Self-contained single-file executable publishing
 - GitHub Actions CI/CD pipeline for automated releases
 
-[1.0.0]: https://github.com/MacroMan/git-worktree-terminal/releases/tag/v1.0.0
+[1.0.0]: https://github.com/MacroMan5/git-worktree-terminal/releases/tag/v1.0.0

@@ -1,9 +1,9 @@
 # Git Worktree Terminal
 
-[![Release](https://img.shields.io/github/v/release/MacroMan/git-worktree-terminal)](https://github.com/MacroMan/git-worktree-terminal/releases)
+[![Release](https://img.shields.io/github/v/release/MacroMan5/git-worktree-terminal)](https://github.com/MacroMan5/git-worktree-terminal/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![.NET 8.0](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/)
-[![Windows](https://img.shields.io/badge/Platform-Windows-0078D4.svg)](https://github.com/MacroMan/git-worktree-terminal/releases)
+[![Windows](https://img.shields.io/badge/Platform-Windows-0078D4.svg)](https://github.com/MacroMan5/git-worktree-terminal/releases)
 
 A tmux-inspired terminal manager for git worktrees on Windows. Switch between worktrees, split terminal panes, and browse files — all from a single window.
 
@@ -43,12 +43,12 @@ Git Worktree Terminal gives you a **single window** where every worktree has its
 
 ### Download (recommended)
 
-Download `git-worktree-terminal.exe` from the [latest release](https://github.com/MacroMan/git-worktree-terminal/releases/latest). It's a single self-contained executable — no .NET runtime required.
+Download `git-worktree-terminal.exe` from the [latest release](https://github.com/MacroMan5/git-worktree-terminal/releases/latest). It's a single self-contained executable — no .NET runtime required.
 
 ### Build from source
 
 ```bash
-git clone https://github.com/MacroMan/git-worktree-terminal.git
+git clone https://github.com/MacroMan5/git-worktree-terminal.git
 cd git-worktree-terminal
 dotnet publish tmuxlike/tmuxlike.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
 ```

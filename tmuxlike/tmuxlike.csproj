@@ -10,7 +10,7 @@
     <Description>A tmux-inspired terminal manager for git worktrees on Windows</Description>
     <Authors>MacroMan</Authors>
     <Copyright>Copyright (C) 2026 MacroMan</Copyright>
-    <RepositoryUrl>https://github.com/MacroMan/git-worktree-terminal</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MacroMan5/git-worktree-terminal</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
     <Version>1.0.0</Version>
