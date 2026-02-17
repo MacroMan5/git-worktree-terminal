@@ -104,3 +104,36 @@ class Transcriber:
         text = " ".join(seg.text.strip() for seg in segments).strip()
         log.info("Transcript: %s", text)
         return text
+
+
+class Refiner:
+    """Refines raw transcripts using Ollama (local LLM)."""
+
+    def refine(self, transcript: str) -> str:
+        """Send transcript to Ollama for cleanup. Returns original on failure."""
+        if not transcript:
+            return ""
+        try:
+            resp = requests.post(
+                OLLAMA_URL,
+                json={
+                    "model": OLLAMA_MODEL,
+                    "system": SYSTEM_PROMPT,
+                    "prompt": transcript,
+                    "stream": False,
+                },
+                timeout=REFINE_TIMEOUT,
+            )
+            resp.raise_for_status()
+            result = resp.json().get("response", transcript).strip()
+            log.info("Refined: %s", result)
+            return result
+        except requests.Timeout:
+            log.error("Ollama timeout after %ds", REFINE_TIMEOUT)
+            raise
+        except requests.ConnectionError:
+            log.error("Cannot connect to Ollama at %s", OLLAMA_URL)
+            raise
+        except Exception as e:
+            log.error("Refinement failed: %s", e)
+            raise
