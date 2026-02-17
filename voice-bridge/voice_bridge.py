@@ -86,3 +86,21 @@ class AudioRecorder:
             log.warning("Audio status: %s", status)
         if self._recording:
             self._buffer.append(indata[:, 0].copy())
+
+
+class Transcriber:
+    """Transcribes audio using faster-whisper."""
+
+    def __init__(self):
+        log.info("Loading Whisper model '%s' (first run may download)...", WHISPER_MODEL)
+        self._model = WhisperModel(WHISPER_MODEL, compute_type="int8")
+        log.info("Whisper model loaded")
+
+    def transcribe(self, audio: np.ndarray) -> str:
+        """Transcribe an audio buffer to text. Returns empty string on failure."""
+        if len(audio) == 0:
+            return ""
+        segments, _info = self._model.transcribe(audio, beam_size=5)
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+        log.info("Transcript: %s", text)
+        return text
