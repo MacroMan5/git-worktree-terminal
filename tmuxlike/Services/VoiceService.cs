@@ -199,6 +199,37 @@ public class VoiceService : IDisposable
         }
     }
 
+    public void Toggle()
+    {
+        switch (_state)
+        {
+            case VoiceState.Idle:
+                _ = SendAction("PTT_DOWN");
+                break;
+            case VoiceState.Recording:
+                _ = SendAction("PTT_UP");
+                break;
+            case VoiceState.Processing:
+                _ = SendAction("CANCEL");
+                break;
+        }
+    }
+
+    private async Task SendAction(string action)
+    {
+        if (_ws is not { State: WebSocketState.Open }) return;
+        var json = JsonSerializer.Serialize(new { action });
+        var bytes = Encoding.UTF8.GetBytes(json);
+        try
+        {
+            await _ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[VoiceService] Send failed: {ex.Message}");
+        }
+    }
+
     private void SetState(VoiceState state)
     {
         if (_state == state) return;
