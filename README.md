@@ -25,6 +25,7 @@ Git Worktree Terminal gives you a **single window** where every worktree has its
 - **Worktree management** — Create new worktrees (auto-generates branch + path) and delete existing ones.
 - **Session persistence** — Terminal sessions are preserved when switching between worktrees.
 - **Dark theme** — VS Code-inspired dark UI throughout.
+- **Voice-to-Prompt** — Push-to-Talk captures speech, transcribes and refines it into clean English prompts, then injects into the active terminal pane.
 
 ## Keyboard Shortcuts
 
@@ -37,6 +38,7 @@ Git Worktree Terminal gives you a **single window** where every worktree has its
 | `Ctrl+O` | Open worktree in VS Code |
 | `Ctrl+T` | Split terminal pane |
 | `Ctrl+W` | Close focused pane |
+| `Ctrl+Shift+V` | Toggle voice recording (Push-to-Talk) |
 | `Escape` | Return focus from file explorer to terminal |
 
 ## Installation
@@ -63,11 +65,33 @@ The executable will be at `tmuxlike/bin/Release/net8.0-windows7.0/win-x64/publis
 4. Click a worktree to open a terminal session in that directory
 5. Use `Ctrl+T` to split into multiple panes
 
+## Voice-to-Prompt
+
+Speak messy instructions, get clean English prompts injected into your terminal.
+
+### Setup
+
+1. Install [Ollama](https://ollama.com): `winget install Ollama.Ollama`
+2. Pull the model: `ollama pull qwen2.5-coder:7b`
+3. Install Python deps: `pip install -r voice-bridge/requirements.txt`
+
+The voice bridge starts automatically with the app. See [voice-bridge/README.md](voice-bridge/README.md) for details.
+
+### How It Works
+
+1. Press `Ctrl+Shift+V` to start recording
+2. Speak your instructions (any language — output is always English)
+3. Press `Ctrl+Shift+V` to stop
+4. Review the refined prompt in the overlay
+5. `Enter` to inject into terminal, `Esc` to discard
+
 ## Requirements
 
 - Windows 10 version 1809 or later
 - `git` on your PATH
 - `code` on your PATH (optional, for VS Code integration)
+- Python 3.10+ (optional, for Voice-to-Prompt)
+- [Ollama](https://ollama.com) with `qwen2.5-coder:7b` (optional, for Voice-to-Prompt)
 
 ## License
 
