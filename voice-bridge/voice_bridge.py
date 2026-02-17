@@ -42,3 +42,47 @@ well-structured version in English. Rules:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("voice-bridge")
+
+
+class AudioRecorder:
+    """Records audio from the default microphone into a numpy buffer."""
+
+    def __init__(self):
+        self._buffer: list[np.ndarray] = []
+        self._stream: sd.InputStream | None = None
+        self._recording = False
+
+    def start(self) -> None:
+        """Open the mic stream and begin recording."""
+        if self._recording:
+            return
+        self._buffer.clear()
+        self._recording = True
+        self._stream = sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype="float32",
+            callback=self._audio_callback,
+        )
+        self._stream.start()
+        log.info("Recording started")
+
+    def stop(self) -> np.ndarray:
+        """Stop recording and return the audio buffer as a numpy array."""
+        self._recording = False
+        if self._stream is not None:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
+        if not self._buffer:
+            return np.array([], dtype="float32")
+        audio = np.concatenate(self._buffer)
+        self._buffer.clear()
+        log.info("Recording stopped — %d samples (%.1fs)", len(audio), len(audio) / SAMPLE_RATE)
+        return audio
+
+    def _audio_callback(self, indata: np.ndarray, frames: int, time_info, status) -> None:
+        if status:
+            log.warning("Audio status: %s", status)
+        if self._recording:
+            self._buffer.append(indata[:, 0].copy())
