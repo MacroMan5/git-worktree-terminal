@@ -7,7 +7,6 @@ refines with Ollama, and returns clean prompts.
 import asyncio
 import json
 import logging
-import threading
 
 import numpy as np
 import requests
