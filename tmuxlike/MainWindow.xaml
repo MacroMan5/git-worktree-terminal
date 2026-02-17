@@ -19,6 +19,7 @@
         <KeyBinding Key="Tab" Modifiers="Ctrl+Shift" Command="{x:Static local:MainWindow.PrevPaneCommand}" />
         <KeyBinding Key="Down" Modifiers="Alt" Command="{x:Static local:MainWindow.NextWorktreeCommand}" />
         <KeyBinding Key="Up" Modifiers="Alt" Command="{x:Static local:MainWindow.PrevWorktreeCommand}" />
+        <KeyBinding Key="V" Modifiers="Ctrl+Shift" Command="{x:Static local:MainWindow.VoiceToggleCommand}" />
     </Window.InputBindings>
 
     <Window.Resources>
@@ -68,8 +69,13 @@
     <DockPanel>
         <!-- Status bar -->
         <Border DockPanel.Dock="Bottom" Background="#2d2d2d" Padding="12,6" BorderBrush="#3c3c3c" BorderThickness="0,1,0,0">
-            <TextBlock Foreground="#aaa" FontSize="11"
-                       Text="Ctrl+N: New | F5: Refresh | Del: Remove | Ctrl+E: Files | Ctrl+O: VS Code | Ctrl+T: Split | Ctrl+W: Close | Ctrl+Tab: Panes | Alt+↑↓: Worktrees" />
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Right" x:Name="VoiceStatusText"
+                           Foreground="#888" FontSize="11" Margin="12,0"
+                           HorizontalAlignment="Right" Text="Voice Offline" />
+                <TextBlock Foreground="#aaa" FontSize="11"
+                           Text="Ctrl+N: New | F5: Refresh | Del: Remove | Ctrl+E: Files | Ctrl+O: VS Code | Ctrl+T: Split | Ctrl+W: Close | Ctrl+Tab: Panes | Alt+↑↓: Worktrees" />
+            </DockPanel>
         </Border>
 
         <!-- Toolbar -->

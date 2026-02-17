@@ -60,6 +60,7 @@ public partial class MainWindow : Window
     public static readonly RoutedCommand PrevPaneCommand = new();
     public static readonly RoutedCommand NextWorktreeCommand = new();
     public static readonly RoutedCommand PrevWorktreeCommand = new();
+    public static readonly RoutedCommand VoiceToggleCommand = new();
 
     private const int MaxPanes = 4;
 
@@ -68,6 +69,7 @@ public partial class MainWindow : Window
     private WorktreeInfo? _currentWorktree;
     private bool _filesVisible;
     private int _focusedPaneIndex;
+    private VoiceService? _voiceService;
 
     public MainWindow()
     {
@@ -90,8 +92,15 @@ public partial class MainWindow : Window
         CommandBindings.Add(new CommandBinding(PrevPaneCommand, (_, _) => CyclePane(-1)));
         CommandBindings.Add(new CommandBinding(NextWorktreeCommand, (_, _) => CycleWorktree(1)));
         CommandBindings.Add(new CommandBinding(PrevWorktreeCommand, (_, _) => CycleWorktree(-1)));
+        CommandBindings.Add(new CommandBinding(VoiceToggleCommand, (_, _) => _voiceService?.Toggle()));
 
         ContentRendered += MainWindow_ContentRendered;
+
+        _voiceService = new VoiceService(Dispatcher);
+        _voiceService.StateChanged += OnVoiceStateChanged;
+        _voiceService.PromptReady += OnVoicePromptReady;
+        _voiceService.ErrorOccurred += OnVoiceError;
+        _voiceService.StartBridge();
     }
 
     private void MainWindow_ContentRendered(object? sender, EventArgs e)
@@ -634,10 +643,55 @@ public partial class MainWindow : Window
         }
     }
 
+    // ── Voice service ───────────────────────────────────────────────
+
+    private void OnVoiceStateChanged(VoiceState state)
+    {
+        VoiceStatusText.Text = state switch
+        {
+            VoiceState.Disconnected => "\u26a0\ufe0f Voice Offline",
+            VoiceState.Idle => "\U0001f3a4 Voice Ready",
+            VoiceState.Recording => "\U0001f534 Recording... (Ctrl+Shift+V to stop)",
+            VoiceState.Processing => "\u23f3 Refining prompt...",
+            _ => ""
+        };
+
+        VoiceStatusText.Foreground = state switch
+        {
+            VoiceState.Recording => new SolidColorBrush(Color.FromRgb(0xff, 0x44, 0x44)),
+            VoiceState.Processing => new SolidColorBrush(Color.FromRgb(0xff, 0xcc, 0x00)),
+            _ => new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88))
+        };
+    }
+
+    private void OnVoicePromptReady(string text)
+    {
+        // Phase 2: log to debug output. Phase 3 will show the overlay.
+        Debug.WriteLine($"[Voice] Prompt ready: {text}");
+    }
+
+    private void OnVoiceError(string message)
+    {
+        VoiceStatusText.Text = $"\u274c {message}";
+        VoiceStatusText.Foreground = new SolidColorBrush(Color.FromRgb(0xff, 0x44, 0x44));
+
+        // Auto-clear after 5 seconds
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (_voiceService != null)
+                OnVoiceStateChanged(_voiceService.State);
+        };
+        timer.Start();
+    }
+
     // ── Shutdown ────────────────────────────────────────────────────
 
     private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
     {
+        _voiceService?.Dispose();
+
         if (WorktreeList.ItemsSource is List<WorktreeInfo> list)
         {
             foreach (var wt in list)
