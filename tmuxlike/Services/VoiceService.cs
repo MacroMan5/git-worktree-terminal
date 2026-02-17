@@ -39,6 +39,81 @@ public class VoiceService : IDisposable
         _dispatcher = dispatcher;
     }
 
+    public void StartBridge()
+    {
+        var scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "voice-bridge", "voice_bridge.py");
+        if (!File.Exists(scriptPath))
+        {
+            scriptPath = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "voice-bridge", "voice_bridge.py"));
+        }
+
+        try
+        {
+            _bridgeProcess = Process.Start(new ProcessStartInfo
+            {
+                FileName = "python",
+                Arguments = $"\"{scriptPath}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true,
+            });
+
+            if (_bridgeProcess != null)
+            {
+                _bridgeProcess.ErrorDataReceived += (_, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data))
+                        Debug.WriteLine($"[voice-bridge] {e.Data}");
+                };
+                _bridgeProcess.BeginErrorReadLine();
+            }
+
+            _cts = new CancellationTokenSource();
+            _ = ConnectLoop(_cts.Token);
+        }
+        catch (Exception ex)
+        {
+            SetState(VoiceState.Disconnected);
+            _dispatcher.Invoke(() => ErrorOccurred?.Invoke($"Python not found: {ex.Message}"));
+        }
+    }
+
+    public void StopBridge()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = null;
+
+        if (_ws is { State: WebSocketState.Open })
+        {
+            try
+            {
+                _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None)
+                    .GetAwaiter().GetResult();
+            }
+            catch { }
+        }
+        _ws?.Dispose();
+        _ws = null;
+
+        if (_bridgeProcess is { HasExited: false })
+        {
+            try { _bridgeProcess.Kill(entireProcessTree: true); } catch { }
+        }
+        _bridgeProcess?.Dispose();
+        _bridgeProcess = null;
+
+        SetState(VoiceState.Disconnected);
+    }
+
+    private void SetState(VoiceState state)
+    {
+        if (_state == state) return;
+        _state = state;
+        _dispatcher.Invoke(() => StateChanged?.Invoke(state));
+    }
+
     public void Dispose()
     {
         StopBridge();
