@@ -13,6 +13,14 @@
         <local:FileIconConverter x:Key="FileIconConverter" />
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
 
+        <ContextMenu x:Key="FileItemContextMenu" x:Shared="False" Background="#2d2d2d" BorderBrush="#555" Foreground="#e1e1e1">
+            <MenuItem Header="Open in VS Code" Click="Context_OpenVSCode" />
+            <MenuItem Header="Open in Explorer" Click="Context_OpenExplorer" />
+            <Separator />
+            <MenuItem Header="Copy Path" Click="Context_CopyPath" InputGestureText="Ctrl+C" />
+            <MenuItem Header="Copy Name" Click="Context_CopyName" />
+        </ContextMenu>
+
         <Style x:Key="ToolbarButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="#cccccc" />
@@ -190,17 +198,7 @@
                                 <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
                                 <EventSetter Event="PreviewMouseRightButtonDown" Handler="TreeViewItem_PreviewMouseRightButtonDown" />
                                 <EventSetter Event="ContextMenuOpening" Handler="TreeViewItem_ContextMenuOpening" />
-                                <Setter Property="ContextMenu">
-                                    <Setter.Value>
-                                        <ContextMenu Background="#2d2d2d" BorderBrush="#555" Foreground="#e1e1e1">
-                                            <MenuItem Header="Open in VS Code" Click="Context_OpenVSCode" />
-                                            <MenuItem Header="Open in Explorer" Click="Context_OpenExplorer" />
-                                            <Separator />
-                                            <MenuItem Header="Copy Path" Click="Context_CopyPath" InputGestureText="Ctrl+C" />
-                                            <MenuItem Header="Copy Name" Click="Context_CopyName" />
-                                        </ContextMenu>
-                                    </Setter.Value>
-                                </Setter>
+                                <Setter Property="ContextMenu" Value="{StaticResource FileItemContextMenu}" />
                             </Style>
                         </TreeView.ItemContainerStyle>
                     </TreeView>

@@ -17,6 +17,7 @@ packages/
 
 # Python
 __pycache__/
+venv/
 
 # Publish output directory
 publish-out/

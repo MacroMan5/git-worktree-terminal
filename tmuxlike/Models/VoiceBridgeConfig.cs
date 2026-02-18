@@ -20,7 +20,7 @@ public class VoiceBridgeConfig
     public int MaxRecordSeconds { get; set; } = 60;
 
     [JsonPropertyName("refineTimeout")]
-    public int RefineTimeout { get; set; } = 10;
+    public int RefineTimeout { get; set; } = 30;
 
     [JsonPropertyName("pythonPath")]
     public string PythonPath { get; set; } = "python";
