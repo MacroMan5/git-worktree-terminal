@@ -24,7 +24,6 @@ Git Worktree Terminal gives you a **single window** where every worktree has its
 - **VS Code integration** — Open the current worktree folder or individual files directly in VS Code.
 - **Worktree management** — Create new worktrees (auto-generates branch + path) and delete existing ones.
 - **Session persistence** — Terminal sessions are preserved when switching between worktrees.
-- **Dark theme** — VS Code-inspired dark UI throughout.
 - **Voice-to-Prompt** — Push-to-Talk captures speech, transcribes and refines it into clean English prompts, then injects into the active terminal pane.
 
 ## Keyboard Shortcuts
@@ -71,7 +70,7 @@ Speak messy instructions, get clean English prompts injected into your terminal.
 
 ### Setup
 
-1. Install [Ollama](https://ollama.com): `winget install Ollama.Ollama`
+1. Install [Ollama](https: //ollama.com): `winget install Ollama.Ollama`
 2. Pull the model: `ollama pull qwen2.5-coder:7b`
 3. Install Python deps: `pip install -r voice-bridge/requirements.txt`
 

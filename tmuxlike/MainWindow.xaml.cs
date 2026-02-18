@@ -98,9 +98,14 @@ public partial class MainWindow : Window
             _voiceService?.Toggle();
         }));
 
+        KeybindingsService.EnsureConfigExists();
+        ApplyKeybindings();
+
         ContentRendered += MainWindow_ContentRendered;
 
-        _voiceService = new VoiceService(Dispatcher);
+        ConfigService.EnsureConfigExists();
+        var config = ConfigService.Load();
+        _voiceService = new VoiceService(Dispatcher, config);
         _voiceService.StateChanged += OnVoiceStateChanged;
         _voiceService.PromptReady += OnVoicePromptReady;
         _voiceService.ErrorOccurred += OnVoiceError;
@@ -108,6 +113,56 @@ public partial class MainWindow : Window
 
         VoiceOverlay.PromptAccepted += OnPromptAccepted;
         VoiceOverlay.PromptDiscarded += OnPromptDiscarded;
+    }
+
+    // ── Keybindings ───────────────────────────────────────────────
+
+    private void ApplyKeybindings()
+    {
+        InputBindings.Clear();
+
+        var config = KeybindingsService.Load();
+        var bindings = new (string combo, RoutedCommand command)[]
+        {
+            (config.NewWorktree, NewWorktreeCommand),
+            (config.Refresh, RefreshCommand),
+            (config.DeleteWorktree, DeleteWorktreeCommand),
+            (config.ToggleFiles, ToggleFilesCommand),
+            (config.OpenVSCode, OpenVSCodeCommand),
+            (config.SplitPane, SplitPaneCommand),
+            (config.ClosePane, ClosePaneCommand),
+            (config.NextPane, NextPaneCommand),
+            (config.PrevPane, PrevPaneCommand),
+            (config.NextWorktree, NextWorktreeCommand),
+            (config.PrevWorktree, PrevWorktreeCommand),
+            (config.VoiceToggle, VoiceToggleCommand),
+        };
+
+        foreach (var (combo, command) in bindings)
+        {
+            if (KeyComboParser.TryParse(combo, out var key, out var modifiers))
+                InputBindings.Add(new KeyBinding(command, key, modifiers));
+        }
+
+        UpdateStatusBarText(config);
+    }
+
+    private void UpdateStatusBarText(KeybindingsConfig? config = null)
+    {
+        config ??= KeybindingsService.Load();
+        StatusBarHintText.Text =
+            $"{config.NewWorktree}: New | {config.Refresh}: Refresh | {config.DeleteWorktree}: Remove | " +
+            $"{config.ToggleFiles}: Files | {config.OpenVSCode}: VS Code | {config.SplitPane}: Split | " +
+            $"{config.ClosePane}: Close | {config.NextPane}: Panes | " +
+            $"{config.PrevWorktree}/{config.NextWorktree}: Worktrees";
+    }
+
+    private void KeybindingsSettings_Click(object? sender, RoutedEventArgs e)
+    {
+        var config = KeybindingsService.Load();
+        var dialog = new KeybindingsDialog(config) { Owner = this };
+        if (dialog.ShowDialog() == true)
+            ApplyKeybindings();
     }
 
     private void MainWindow_ContentRendered(object? sender, EventArgs e)
@@ -143,6 +198,23 @@ public partial class MainWindow : Window
 
     // ── Pane creation & layout ──────────────────────────────────────
 
+    private static string BuildStartupCommand(string shellPath, string workingDir)
+    {
+        var name = Path.GetFileName(shellPath);
+
+        if (name.Equals("pwsh.exe", StringComparison.OrdinalIgnoreCase))
+            return $"\"{shellPath}\" -WorkingDirectory \"{workingDir}\"";
+
+        if (name.Equals("powershell.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            var escaped = workingDir.Replace("'", "''");
+            return $"\"{shellPath}\" -NoExit -Command \"Set-Location '{escaped}'\"";
+        }
+
+        // cmd.exe or other
+        return $"\"{shellPath}\" /K \"cd /d \"{workingDir}\"\"";
+    }
+
     private TerminalPane CreatePane(WorktreeInfo wt)
     {
         var pane = new TerminalPane();
@@ -151,7 +223,7 @@ public partial class MainWindow : Window
         var terminal = new EasyTerminalControl
         {
             FontSizeWhenSettingTheme = 13,
-            StartupCommandLine = $"\"{_shellPath}\""
+            StartupCommandLine = BuildStartupCommand(_shellPath, wt.Path)
         };
         pane.Control = terminal;
 
@@ -187,6 +259,12 @@ public partial class MainWindow : Window
             CornerRadius = new CornerRadius(2),
             ClipToBounds = true
         };
+
+        // Prevent WPF from intercepting Tab — let the terminal handle it
+        KeyboardNavigation.SetTabNavigation(border, KeyboardNavigationMode.None);
+        KeyboardNavigation.SetControlTabNavigation(border, KeyboardNavigationMode.None);
+        KeyboardNavigation.SetDirectionalNavigation(border, KeyboardNavigationMode.None);
+
         pane.TileBorder = border;
 
         // Track focus
@@ -201,7 +279,7 @@ public partial class MainWindow : Window
             }
         };
 
-        // Capture session & CD after terminal loads
+        // Capture session reference after terminal loads
         terminal.Loaded += (_, _) =>
         {
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
@@ -209,14 +287,6 @@ public partial class MainWindow : Window
             {
                 timer.Stop();
                 pane.Session = terminal.ConPTYTerm;
-                if (pane.Session != null)
-                {
-                    var escapedPath = wt.Path.Replace("'", "''");
-                    var cdCommand = _shellPath.Contains("cmd.exe", StringComparison.OrdinalIgnoreCase)
-                        ? $"cd /d \"{wt.Path}\"\r"
-                        : $"Set-Location '{escapedPath}'\r";
-                    try { pane.Session.WriteToTerm(cdCommand); } catch { }
-                }
             };
             timer.Start();
         };
@@ -611,6 +681,12 @@ public partial class MainWindow : Window
             OpenFileInVSCode(item.FullPath);
             e.Handled = true;
         }
+        else if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control
+                 && FileTreeView.SelectedItem is FileItem copyItem)
+        {
+            Clipboard.SetText(copyItem.FullPath);
+            e.Handled = true;
+        }
         else if (e.Key == Key.Escape)
         {
             // Return focus to the focused terminal pane
@@ -618,6 +694,62 @@ public partial class MainWindow : Window
                 _currentWorktree.Panes[_focusedPaneIndex].Control.Focus();
             e.Handled = true;
         }
+    }
+
+    // ── File explorer context menu ────────────────────────────────────
+
+    private void TreeViewItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is TreeViewItem tvi)
+        {
+            tvi.IsSelected = true;
+            e.Handled = true;
+        }
+    }
+
+    private void TreeViewItem_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (sender is TreeViewItem tvi && tvi.DataContext is FileItem item
+            && tvi.ContextMenu is ContextMenu menu)
+        {
+            foreach (var obj in menu.Items)
+            {
+                if (obj is MenuItem mi && mi.Header is string header && header == "Open in VS Code")
+                    mi.Visibility = item.IsDirectory ? Visibility.Collapsed : Visibility.Visible;
+            }
+        }
+    }
+
+    private static FileItem? GetFileItemFromContextMenu(object sender)
+    {
+        if (sender is MenuItem mi && mi.Parent is ContextMenu cm
+            && cm.PlacementTarget is TreeViewItem tvi)
+            return tvi.DataContext as FileItem;
+        return null;
+    }
+
+    private void Context_OpenVSCode(object sender, RoutedEventArgs e)
+    {
+        if (GetFileItemFromContextMenu(sender) is { } item && !item.IsDirectory)
+            OpenFileInVSCode(item.FullPath);
+    }
+
+    private void Context_OpenExplorer(object sender, RoutedEventArgs e)
+    {
+        if (GetFileItemFromContextMenu(sender) is { } item)
+            Process.Start("explorer.exe", $"/select,\"{item.FullPath}\"");
+    }
+
+    private void Context_CopyPath(object sender, RoutedEventArgs e)
+    {
+        if (GetFileItemFromContextMenu(sender) is { } item)
+            Clipboard.SetText(item.FullPath);
+    }
+
+    private void Context_CopyName(object sender, RoutedEventArgs e)
+    {
+        if (GetFileItemFromContextMenu(sender) is { } item)
+            Clipboard.SetText(item.Name);
     }
 
     // ── VS Code ─────────────────────────────────────────────────────
@@ -650,6 +782,28 @@ public partial class MainWindow : Window
         }
     }
 
+    // ── Voice settings ────────────────────────────────────────────────
+
+    private void VoiceSettings_Click(object? sender, RoutedEventArgs e)
+    {
+        var config = ConfigService.Load();
+        var dialog = new VoiceSettingsDialog(config) { Owner = this };
+        if (dialog.ShowDialog() == true)
+            RestartVoiceBridge();
+    }
+
+    private void RestartVoiceBridge()
+    {
+        _voiceService?.Dispose();
+
+        var config = ConfigService.Load();
+        _voiceService = new VoiceService(Dispatcher, config);
+        _voiceService.StateChanged += OnVoiceStateChanged;
+        _voiceService.PromptReady += OnVoicePromptReady;
+        _voiceService.ErrorOccurred += OnVoiceError;
+        _voiceService.StartBridge();
+    }
+
     // ── Voice service ───────────────────────────────────────────────
 
     private void OnVoiceStateChanged(VoiceState state)
@@ -658,7 +812,7 @@ public partial class MainWindow : Window
         {
             VoiceState.Disconnected => "\u26a0\ufe0f Voice Offline",
             VoiceState.Idle => "\U0001f3a4 Voice Ready",
-            VoiceState.Recording => "\U0001f534 Recording... (Ctrl+Shift+V to stop)",
+            VoiceState.Recording => $"\U0001f534 Recording... ({KeybindingsService.Load().VoiceToggle} to stop)",
             VoiceState.Processing => "\u23f3 Refining prompt...",
             _ => ""
         };

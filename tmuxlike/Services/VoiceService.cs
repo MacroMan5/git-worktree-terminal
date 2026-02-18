@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Windows.Threading;
+using tmuxlike.Models;
 
 namespace tmuxlike.Services;
 
@@ -17,12 +18,8 @@ public enum VoiceState
 
 public class VoiceService : IDisposable
 {
-    private const string Host = "localhost";
-    private const int Port = 5005;
-    private const int ReconnectDelayMs = 5000;
-    private const int ConnectTimeoutMs = 3000;
-
     private readonly Dispatcher _dispatcher;
+    private readonly VoiceBridgeConfig _config;
     private ClientWebSocket? _ws;
     private Process? _bridgeProcess;
     private CancellationTokenSource? _cts;
@@ -34,9 +31,10 @@ public class VoiceService : IDisposable
 
     public VoiceState State => _state;
 
-    public VoiceService(Dispatcher dispatcher)
+    public VoiceService(Dispatcher dispatcher, VoiceBridgeConfig config)
     {
         _dispatcher = dispatcher;
+        _config = config;
     }
 
     public void StartBridge()
@@ -52,8 +50,8 @@ public class VoiceService : IDisposable
         {
             _bridgeProcess = Process.Start(new ProcessStartInfo
             {
-                FileName = "python",
-                Arguments = $"\"{scriptPath}\"",
+                FileName = _config.PythonPath,
+                Arguments = $"\"{scriptPath}\" --config \"{ConfigService.ConfigFilePath}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardError = true,
@@ -120,9 +118,9 @@ public class VoiceService : IDisposable
                 _ws = new ClientWebSocket();
 
                 using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                connectCts.CancelAfter(ConnectTimeoutMs);
+                connectCts.CancelAfter(_config.ConnectTimeoutMs);
 
-                await _ws.ConnectAsync(new Uri($"ws://{Host}:{Port}"), connectCts.Token);
+                await _ws.ConnectAsync(new Uri($"ws://{_config.Host}:{_config.Port}"), connectCts.Token);
                 SetState(VoiceState.Idle);
                 await ReceiveLoop(ct);
             }
@@ -136,7 +134,7 @@ public class VoiceService : IDisposable
             }
 
             if (!ct.IsCancellationRequested)
-                await Task.Delay(ReconnectDelayMs, ct).ConfigureAwait(false);
+                await Task.Delay(_config.ReconnectDelayMs, ct).ConfigureAwait(false);
         }
     }
 

@@ -4,9 +4,11 @@ WebSocket server that captures audio, transcribes with Whisper,
 refines with Ollama, and returns clean prompts.
 """
 
+import argparse
 import asyncio
 import json
 import logging
+import os
 
 import numpy as np
 import requests
@@ -14,16 +16,21 @@ import sounddevice as sd
 import websockets
 from faster_whisper import WhisperModel
 
-HOST = "localhost"
-PORT = 5005
-SAMPLE_RATE = 16000
-OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "qwen2.5-coder:7b"
-WHISPER_MODEL = "base.en"
-MAX_RECORD_SECONDS = 60
-REFINE_TIMEOUT = 10
+DEFAULTS = {
+    "host": "localhost",
+    "port": 5005,
+    "whisperModel": "base",
+    "language": "fr",
+    "ollamaUrl": "http://localhost:11434/api/generate",
+    "ollamaModel": "qwen2.5-coder:7b",
+    "maxRecordSeconds": 60,
+    "refineTimeout": 10,
+    "systemPrompt": None,
+}
 
-SYSTEM_PROMPT = """You are a voice-to-text cleanup assistant for a software developer.
+SAMPLE_RATE = 16000
+
+DEFAULT_SYSTEM_PROMPT = """You are a voice-to-text cleanup assistant for a software developer.
 
 Your ONLY job is to take messy spoken transcripts and return a clean,
 well-structured version in English. Rules:
@@ -39,6 +46,21 @@ well-structured version in English. Rules:
 - NEVER add explanations or commentary
 - Return ONLY the cleaned text, nothing else"""
 
+
+def load_config(path):
+    """Load config from JSON file, merging with defaults."""
+    cfg = dict(DEFAULTS)
+    if path and os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                user_cfg = json.load(f)
+            for key, value in user_cfg.items():
+                if key in cfg:
+                    cfg[key] = value
+        except Exception as e:
+            logging.getLogger("voice-bridge").warning("Failed to load config %s: %s", path, e)
+    return cfg
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("voice-bridge")
 
@@ -46,7 +68,8 @@ log = logging.getLogger("voice-bridge")
 class AudioRecorder:
     """Records audio from the default microphone into a numpy buffer."""
 
-    def __init__(self):
+    def __init__(self, sample_rate=SAMPLE_RATE):
+        self._sample_rate = sample_rate
         self._buffer: list[np.ndarray] = []
         self._stream: sd.InputStream | None = None
         self._recording = False
@@ -58,7 +81,7 @@ class AudioRecorder:
         self._buffer.clear()
         self._recording = True
         self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
+            samplerate=self._sample_rate,
             channels=1,
             dtype="float32",
             callback=self._audio_callback,
@@ -77,7 +100,7 @@ class AudioRecorder:
             return np.array([], dtype="float32")
         audio = np.concatenate(self._buffer)
         self._buffer.clear()
-        log.info("Recording stopped — %d samples (%.1fs)", len(audio), len(audio) / SAMPLE_RATE)
+        log.info("Recording stopped — %d samples (%.1fs)", len(audio), len(audio) / self._sample_rate)
         return audio
 
     def _audio_callback(self, indata: np.ndarray, frames: int, time_info, status) -> None:
@@ -90,16 +113,20 @@ class AudioRecorder:
 class Transcriber:
     """Transcribes audio using faster-whisper."""
 
-    def __init__(self):
-        log.info("Loading Whisper model '%s' (first run may download)...", WHISPER_MODEL)
-        self._model = WhisperModel(WHISPER_MODEL, compute_type="int8")
+    def __init__(self, whisper_model="base", language="fr"):
+        self._language = language
+        log.info("Loading Whisper model '%s' (first run may download)...", whisper_model)
+        self._model = WhisperModel(whisper_model, compute_type="int8")
         log.info("Whisper model loaded")
 
     def transcribe(self, audio: np.ndarray) -> str:
         """Transcribe an audio buffer to text. Returns empty string on failure."""
         if len(audio) == 0:
             return ""
-        segments, _info = self._model.transcribe(audio, beam_size=5)
+        kwargs = {"beam_size": 5}
+        if self._language and self._language != "auto":
+            kwargs["language"] = self._language
+        segments, _info = self._model.transcribe(audio, **kwargs)
         text = " ".join(seg.text.strip() for seg in segments).strip()
         log.info("Transcript: %s", text)
         return text
@@ -108,30 +135,36 @@ class Transcriber:
 class Refiner:
     """Refines raw transcripts using Ollama (local LLM)."""
 
+    def __init__(self, ollama_url=None, ollama_model=None, refine_timeout=10, system_prompt=None):
+        self._ollama_url = ollama_url or DEFAULTS["ollamaUrl"]
+        self._ollama_model = ollama_model or DEFAULTS["ollamaModel"]
+        self._refine_timeout = refine_timeout
+        self._system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
+
     def refine(self, transcript: str) -> str:
         """Send transcript to Ollama for cleanup. Returns original on failure."""
         if not transcript:
             return ""
         try:
             resp = requests.post(
-                OLLAMA_URL,
+                self._ollama_url,
                 json={
-                    "model": OLLAMA_MODEL,
-                    "system": SYSTEM_PROMPT,
+                    "model": self._ollama_model,
+                    "system": self._system_prompt,
                     "prompt": transcript,
                     "stream": False,
                 },
-                timeout=REFINE_TIMEOUT,
+                timeout=self._refine_timeout,
             )
             resp.raise_for_status()
             result = resp.json().get("response", transcript).strip()
             log.info("Refined: %s", result)
             return result
         except requests.Timeout:
-            log.error("Ollama timeout after %ds", REFINE_TIMEOUT)
+            log.error("Ollama timeout after %ds", self._refine_timeout)
             raise
         except requests.ConnectionError:
-            log.error("Cannot connect to Ollama at %s", OLLAMA_URL)
+            log.error("Cannot connect to Ollama at %s", self._ollama_url)
             raise
         except Exception as e:
             log.error("Refinement failed: %s", e)
@@ -141,10 +174,20 @@ class Refiner:
 class VoiceBridge:
     """WebSocket server orchestrating record → transcribe → refine pipeline."""
 
-    def __init__(self):
+    def __init__(self, cfg=None):
+        cfg = cfg or dict(DEFAULTS)
+        self._max_record_seconds = cfg.get("maxRecordSeconds", 60)
         self._recorder = AudioRecorder()
-        self._transcriber = Transcriber()
-        self._refiner = Refiner()
+        self._transcriber = Transcriber(
+            whisper_model=cfg.get("whisperModel", "base"),
+            language=cfg.get("language", "fr"),
+        )
+        self._refiner = Refiner(
+            ollama_url=cfg.get("ollamaUrl"),
+            ollama_model=cfg.get("ollamaModel"),
+            refine_timeout=cfg.get("refineTimeout", 10),
+            system_prompt=cfg.get("systemPrompt"),
+        )
         self._recording = False
         self._cancel = False
         self._timeout_task: asyncio.Task | None = None
@@ -241,10 +284,10 @@ class VoiceBridge:
         log.info("Operation cancelled")
 
     async def _recording_timeout(self, websocket):
-        """Auto-stop recording after MAX_RECORD_SECONDS."""
-        await asyncio.sleep(MAX_RECORD_SECONDS)
+        """Auto-stop recording after max_record_seconds."""
+        await asyncio.sleep(self._max_record_seconds)
         if self._recording:
-            log.warning("Recording timeout (%ds) — auto-stopping", MAX_RECORD_SECONDS)
+            log.warning("Recording timeout (%ds) — auto-stopping", self._max_record_seconds)
             await self._handle_ptt_up(websocket)
 
     async def _send(self, websocket, data: dict):
@@ -254,9 +297,17 @@ class VoiceBridge:
 
 
 async def main():
-    bridge = VoiceBridge()
-    log.info("Starting Voice Bridge on ws://%s:%d", HOST, PORT)
-    async with websockets.serve(bridge.handler, HOST, PORT):
+    parser = argparse.ArgumentParser(description="Voice-to-Prompt bridge server")
+    parser.add_argument("--config", help="Path to voice-bridge.json config file")
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+    host = cfg.get("host", "localhost")
+    port = cfg.get("port", 5005)
+
+    bridge = VoiceBridge(cfg)
+    log.info("Starting Voice Bridge on ws://%s:%d", host, port)
+    async with websockets.serve(bridge.handler, host, port):
         await asyncio.Future()
 
 
