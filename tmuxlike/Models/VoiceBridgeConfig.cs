@@ -5,10 +5,10 @@ namespace tmuxlike.Models;
 public class VoiceBridgeConfig
 {
     [JsonPropertyName("whisperModel")]
-    public string WhisperModel { get; set; } = "base";
+    public string WhisperModel { get; set; } = "small";
 
     [JsonPropertyName("language")]
-    public string Language { get; set; } = "fr";
+    public string Language { get; set; } = "auto";
 
     [JsonPropertyName("ollamaModel")]
     public string OllamaModel { get; set; } = "qwen2.5-coder:7b";

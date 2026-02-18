@@ -19,8 +19,8 @@ from faster_whisper import WhisperModel
 DEFAULTS = {
     "host": "localhost",
     "port": 5005,
-    "whisperModel": "base",
-    "language": "fr",
+    "whisperModel": "small",
+    "language": "auto",
     "ollamaUrl": "http://localhost:11434/api/generate",
     "ollamaModel": "qwen2.5-coder:7b",
     "maxRecordSeconds": 60,
